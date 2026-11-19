@@ -47,12 +47,16 @@ public class PearlCatchingManager {
         this.sequenceTicks = 0;
         this.stageTicks = 0;
         slotManager.captureOriginalSlot(client);
-        tracker.snapshotExistingPearls(client, cfg.maxTrackingRange);
 
+        // যদি আগে থেকেই নিজের ছোড়া পার্ল বাতাসে থাকে, তাহলে নতুন পার্ল না ছুড়ে সেটাই ক্যাচ করবে
         if (tracker.locateOwnActivePearl(client, cfg.maxTrackingRange)) {
-            transitionTo(PearlCatchState.PEARL_FOUND);
+            windChargeController.selectWindChargeSlot(client, slotManager);
+            transitionTo(PearlCatchState.PREDICTING);
+            handlePredictionAndFire(client, cfg);
             return;
         }
+
+        tracker.snapshotExistingPearls(client, cfg.maxTrackingRange);
 
         int pearlSlot = HotbarUtils.findItemInHotbar(client, stack -> stack.isOf(Items.ENDER_PEARL));
         if (pearlSlot == -1) {
@@ -66,6 +70,7 @@ public class PearlCatchingManager {
             return;
         }
 
+        // পার্ল ছোড়ার ঠিক আগেই মিলিসেকেন্ডে প্রি-ক্যালকুলেট করে রাখা
         this.latestPredictedPos = predictor.preCalculateThrowIntercept(client);
         slotManager.switchToSlot(client, pearlSlot);
         InputManager.performUseItem(client);
@@ -111,10 +116,6 @@ public class PearlCatchingManager {
             case PEARL_FOUND, TRACKING_PEARL, SEARCHING_WIND_CHARGE, PREDICTING, AIMING, READY_TO_FIRE -> {
                 handlePredictionAndFire(client, cfg);
             }
-            case FIRING -> {
-                windChargeController.fireWindCharge(client);
-                transitionTo(PearlCatchState.VERIFYING);
-            }
             case VERIFYING -> {
                 rotationController.releaseLock();
                 if (stageTicks >= 2) {
@@ -129,7 +130,7 @@ public class PearlCatchingManager {
 
     private void handlePredictionAndFire(MinecraftClient client, PearlConfig cfg) {
         if (!tracker.updateTelemetry(client)) {
-            fail(client, "Pearl lost");
+            fail(client, "Pearl landed or lost");
             return;
         }
 
@@ -147,7 +148,7 @@ public class PearlCatchingManager {
             return;
         }
 
-        this.latestPredictedPos = sol.interceptPoint();
+        this.latestPredictedPos = sol.aimPoint();
 
         if (cfg.aimAssistance) {
             if (!rotationController.isLocked()) {
@@ -157,7 +158,8 @@ public class PearlCatchingManager {
             }
         }
 
-        if (sol.fireNow()) {
+        // পার্ল অন্তত ১ টিক বাতাসে এগিয়ে যাওয়ার পর যখনই উইন্ড চার্জ ইন্টারসেপ্ট উইন্ডোতে আসবে, সাথে সাথে ফায়ার করবে
+        if (sol.fireNow() && tracker.getTrackedPearl().age >= 1) {
             if (cfg.aimAssistance) {
                 rotationController.updateTargetRotation(client, latestPredictedPos);
             }

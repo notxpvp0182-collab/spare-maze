@@ -14,6 +14,7 @@ public class SpearLungeManager {
     private final SlotManager slotManager;
     private LungeState state = LungeState.IDLE;
     private int spearSlot = -1;
+    private int baseSlot = -1;
     private int stageTicks = 0;
 
     public SpearLungeManager(SlotManager slotManager) {
@@ -31,7 +32,7 @@ public class SpearLungeManager {
         }
 
         int currentSlot = HotbarUtils.getSelectedSlot(client);
-        int baseSlot = (cfg.preferredBaseSlot >= 1 && cfg.preferredBaseSlot <= 9)
+        this.baseSlot = (cfg.preferredBaseSlot >= 1 && cfg.preferredBaseSlot <= 9)
             ? (cfg.preferredBaseSlot - 1)
             : currentSlot;
 
@@ -45,15 +46,14 @@ public class SpearLungeManager {
             return;
         }
 
-        slotManager.captureSpecificSlot(baseSlot);
+        // ক্যাপচার করে রাখা যাতে কাজ শেষে এই নির্দিষ্ট স্লটেই ফিরে আসে
+        slotManager.captureSpecificSlot(this.baseSlot);
 
-        if (currentSlot != baseSlot) {
-            slotManager.switchToSlot(client, baseSlot);
-        }
-
-        InputManager.performJabInput(client);
+        // সরাসরি স্পেয়ার স্লটে সুইচ করা (আগে অন্য স্লটে অ্যাটাক করে কোল্ডডাউন নষ্ট করা যাবে না!)
         slotManager.switchToSlot(client, this.spearSlot);
-        InputManager.performJabInput(client);
+
+        // স্পেয়ার হাতে থাকা অবস্থায় Jab / Lunge ট্রিগার করা
+        InputManager.performSpearLungeJab(client);
 
         this.state = LungeState.RESTORING;
         this.stageTicks = 0;
@@ -62,6 +62,9 @@ public class SpearLungeManager {
     public void tick(MinecraftClient client) {
         if (state == LungeState.RESTORING) {
             stageTicks++;
+            if (stageTicks == 1 && client.player != null && HotbarUtils.getSelectedSlot(client) == this.spearSlot) {
+                // ১ টিক পর নিশ্চিত করা যাতে সার্ভার ও ক্লায়েন্টে লাঞ্জ ভেলোসিটি সম্পূর্ণ রেজিস্টার হয়
+            }
             if (stageTicks >= 2) {
                 slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().spear.restorePreviousSlot);
                 state = LungeState.IDLE;

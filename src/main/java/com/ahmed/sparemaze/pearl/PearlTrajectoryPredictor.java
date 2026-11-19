@@ -7,12 +7,13 @@ import net.minecraft.util.math.Vec3d;
 public class PearlTrajectoryPredictor {
     private static final double PEARL_GRAVITY = 0.03;
     private static final double PEARL_DRAG = 0.99;
-    private static final double WIND_CHARGE_SPEED = 1.55;
+    private static final double WIND_CHARGE_SPEED = 1.5;
+    private static final double WIND_CHARGE_ACCEL_DRAG = 0.99;
 
     public record InterceptSolution(
         boolean valid,
-        Vec3d interceptPoint,
-        int ticksUntilIntercept,
+        Vec3d aimPoint,
+        int ticksUntilHit,
         boolean fireNow
     ) {}
 
@@ -24,27 +25,28 @@ public class PearlTrajectoryPredictor {
         float pitchRad = client.player.getPitch() * 0.017453292F;
         double cosPitch = MathHelper.cos(pitchRad);
 
-        double vx = -MathHelper.sin(yawRad) * cosPitch;
-        double vy = -MathHelper.sin(pitchRad);
-        double vz = MathHelper.cos(yawRad) * cosPitch;
+        double dirX = -MathHelper.sin(yawRad) * cosPitch;
+        double dirY = -MathHelper.sin(pitchRad);
+        double dirZ = MathHelper.cos(yawRad) * cosPitch;
 
-        double len = Math.sqrt(vx * vx + vy * vy + vz * vz);
-        if (len > 0.0) {
-            vx = (vx / len) * 1.5;
-            vy = (vy / len) * 1.5;
-            vz = (vz / len) * 1.5;
-        }
+        double len = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+        double vx = (len > 0.0) ? (dirX / len) * 1.5 : 0.0;
+        double vy = (len > 0.0) ? (dirY / len) * 1.5 : 0.0;
+        double vz = (len > 0.0) ? (dirZ / len) * 1.5 : 0.0;
 
         Vec3d pVel = client.player.getVelocity();
         vx += pVel.x;
-        vy += pVel.y;
+        if (!client.player.isOnGround()) {
+            vy += pVel.y;
+        }
         vz += pVel.z;
 
         double sx = client.player.getX();
         double sy = client.player.getEyeY() - 0.1;
         double sz = client.player.getZ();
 
-        for (int i = 0; i < 4; i++) {
+        // ৩ টিক এগিয়ে প্রি-এইম পজিশন বের করা যাতে পার্ল স্পন হওয়ার আগেই ক্যামেরা পারফেক্ট জায়গায় থাকে
+        for (int i = 0; i < 3; i++) {
             sx += vx;
             sy += vy;
             sz += vz;
@@ -65,13 +67,18 @@ public class PearlTrajectoryPredictor {
             return new InterceptSolution(false, Vec3d.ZERO, -1, false);
         }
 
-        double eyeX = client.player.getX();
-        double eyeY = client.player.getEyeY();
-        double eyeZ = client.player.getZ();
+        // উইন্ড চার্জের আসল স্পন পজিশন (প্লেয়ারের চোখ থেকে ০.১ ব্লক নিচে)
+        double originX = client.player.getX();
+        double originY = client.player.getEyeY() - 0.1;
+        double originZ = client.player.getZ();
+
+        Vec3d pVel = client.player.getVelocity();
+        double pVx = pVel.x;
+        double pVy = client.player.isOnGround() ? 0.0 : pVel.y;
+        double pVz = pVel.z;
 
         Vec3d pearlPos = tracker.getCurrentPosition();
         Vec3d pearlVel = tracker.getCurrentVelocity();
-        int pearlAge = tracker.getTrackedPearl().age;
 
         double simX = pearlPos.x;
         double simY = pearlPos.y;
@@ -81,13 +88,14 @@ public class PearlTrajectoryPredictor {
         double velY = pearlVel.y;
         double velZ = pearlVel.z;
 
-        double bestX = simX + velX;
-        double bestY = simY + velY;
-        double bestZ = simZ + velZ;
+        double bestAimX = simX + velX;
+        double bestAimY = simY + velY;
+        double bestAimZ = simZ + velZ;
         int bestStep = 1;
-        double minError = Double.MAX_VALUE;
+        double smallestGap = Double.MAX_VALUE;
 
-        int steps = Math.max(6, Math.min(25, maxSteps));
+        int steps = Math.max(8, Math.min(35, maxSteps));
+
         for (int t = 1; t <= steps; t++) {
             simX += velX;
             simY += velY;
@@ -97,31 +105,30 @@ public class PearlTrajectoryPredictor {
             velY = velY * PEARL_DRAG - PEARL_GRAVITY;
             velZ *= PEARL_DRAG;
 
-            double dx = simX - eyeX;
-            double dy = simY - eyeY;
-            double dz = simZ - eyeZ;
-            double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            // যদি আমরা এখনই উইন্ড চার্জ ফায়ার করি, t টিক পরে উইন্ড চার্জ কত দূরত্ব অতিক্রম করবে?
+            // প্লেয়ারের মুভমেন্ট মোমেন্টাম বাদ দিয়ে টার্গেট ভেক্টর বের করা
+            double targetDx = (simX - originX) - (pVx * t);
+            double targetDy = (simY - originY) - (pVy * t);
+            double targetDz = (simZ - originZ) - (pVz * t);
 
-            double wcTicks = dist / WIND_CHARGE_SPEED;
-            double diff = Math.abs(t - wcTicks);
+            double requiredDist = Math.sqrt(targetDx * targetDx + targetDy * targetDy + targetDz * targetDz);
+            double wcReachDist = WIND_CHARGE_SPEED * t;
 
-            if (diff < minError) {
-                minError = diff;
-                bestX = simX;
-                bestY = simY;
-                bestZ = simZ;
+            double distanceGap = Math.abs(requiredDist - wcReachDist);
+
+            if (distanceGap < smallestGap) {
+                smallestGap = distanceGap;
+                bestAimX = originX + targetDx;
+                bestAimY = originY + targetDy;
+                bestAimZ = originZ + targetDz;
                 bestStep = t;
             }
         }
 
-        double curDx = pearlPos.x - eyeX;
-        double curDy = pearlPos.y - eyeY;
-        double curDz = pearlPos.z - eyeZ;
-        double currentDistSq = curDx * curDx + curDy * curDy + curDz * curDz;
+        // উইন্ড চার্জের হিটবক্স ও ব্লাস্ট রেডিয়াসের ভেতরে (১.৩৫ ব্লক) আসলেই সাথে সাথে ফায়ার করবে
+        double triggerRadius = 0.85 + (timingSensitivity * 0.08);
+        boolean shouldFireNow = (smallestGap <= triggerRadius && bestStep >= 1 && bestStep <= 14);
 
-        boolean optimalCatchWindow = (pearlAge >= 1 && currentDistSq >= 1.44 && currentDistSq <= 196.0)
-            || (minError <= (0.65 + timingSensitivity * 0.15) && bestStep <= 8);
-
-        return new InterceptSolution(true, new Vec3d(bestX, bestY, bestZ), bestStep, optimalCatchWindow);
+        return new InterceptSolution(true, new Vec3d(bestAimX, bestAimY, bestAimZ), bestStep, shouldFireNow);
     }
 }
