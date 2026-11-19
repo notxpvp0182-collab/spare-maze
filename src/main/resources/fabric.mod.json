@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "sparemaze",
+  "version": "${version}",
+  "name": "Spare Maze",
+  "description": "Lightweight vanilla-style combat utility mod with configurable Pearl Catching, Mace systems, Instant Slam and Spear Lunge.",
+  "authors": [
+    "Ahmed"
+  ],
+  "contact": {
+    "homepage": "https://github.com/ahmed/spare-maze",
+    "sources": "https://github.com/ahmed/spare-maze"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.ahmed.sparemaze.SpareMazeClient"
+    ],
+    "modmenu": [
+      "com.ahmed.sparemaze.SpareMazeModMenu"
+    ]
+  },
+  "mixins": [
+    "sparemaze.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "recommends": {
+    "modmenu": "*"
+  }
+}

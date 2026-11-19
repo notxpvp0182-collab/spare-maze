@@ -1,0 +1,16 @@
+{
+  "category.sparemaze.main": "Spare Maze",
+  "key.sparemaze.pearl_catching": "Pearl Catching",
+  "key.sparemaze.sword_mace": "Sword -> Mace",
+  "key.sparemaze.axe_mace": "Axe -> Mace",
+  "key.sparemaze.spear_mace": "Spear -> Mace",
+  "key.sparemaze.instant_slam": "Axe Instant Slam",
+  "key.sparemaze.spear_lunge": "Spear Lunge",
+  "screen.sparemaze.title": "Spare Maze Settings",
+  "screen.sparemaze.pearl": "Pearl Catching Settings",
+  "screen.sparemaze.mace": "Mace Systems Settings",
+  "screen.sparemaze.axe": "Axe & Instant Slam Settings",
+  "screen.sparemaze.spear": "Spear Lunge Settings",
+  "screen.sparemaze.controls": "Spare Maze Controls",
+  "screen.sparemaze.advanced": "Advanced & Diagnostics"
+}
