@@ -28,7 +28,9 @@ public class MaceManager {
     }
 
     public void tick(MinecraftClient client) {
-        // Synchronous single-tick execution with state safety
+        swordMaceHandler.tick(client);
+        axeMaceHandler.tick(client);
+        spearMaceHandler.tick(client);
     }
 
     public void cancelAll(MinecraftClient client) {

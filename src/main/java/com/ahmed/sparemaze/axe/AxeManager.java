@@ -1,6 +1,7 @@
 package com.ahmed.sparemaze.axe;
 
 import com.ahmed.sparemaze.input.SlotManager;
+import com.ahmed.sparemaze.mace.MaceManager;
 import com.ahmed.sparemaze.targeting.TargetManager;
 import net.minecraft.client.MinecraftClient;
 
@@ -11,8 +12,14 @@ public class AxeManager {
         this.instantSlamManager = new InstantSlamManager(slotManager, targetManager);
     }
 
-    public void triggerInstantSlam(MinecraftClient client) {
-        instantSlamManager.trigger(client);
+    public void triggerInstantSlamOrAxeMace(MinecraftClient client, MaceManager maceManager) {
+        instantSlamManager.triggerOrFallbackAxeMace(client, maceManager);
+    }
+
+    public void onHoldKey(MinecraftClient client, MaceManager maceManager) {
+        if (instantSlamManager.getState() == InstantSlamState.IDLE) {
+            instantSlamManager.triggerOrFallbackAxeMace(client, maceManager);
+        }
     }
 
     public void tick(MinecraftClient client) {

@@ -3,8 +3,8 @@ package com.ahmed.sparemaze.axe;
 import com.ahmed.sparemaze.config.AxeConfig;
 import com.ahmed.sparemaze.config.ConfigManager;
 import com.ahmed.sparemaze.input.SlotManager;
+import com.ahmed.sparemaze.mace.MaceManager;
 import com.ahmed.sparemaze.targeting.TargetManager;
-import com.ahmed.sparemaze.util.DebugLogger;
 import com.ahmed.sparemaze.util.HotbarUtils;
 import com.ahmed.sparemaze.util.ItemUtils;
 import net.minecraft.client.MinecraftClient;
@@ -16,7 +16,7 @@ public class InstantSlamManager {
     private final ShieldBreakHandler breakHandler = new ShieldBreakHandler();
 
     private InstantSlamState state = InstantSlamState.IDLE;
-    private int waitTicks = 0;
+    private int stageTicks = 0;
     private int cachedMaceSlot = -1;
 
     public InstantSlamManager(SlotManager slotManager, TargetManager targetManager) {
@@ -24,64 +24,42 @@ public class InstantSlamManager {
         this.targetManager = targetManager;
     }
 
-    public void trigger(MinecraftClient client) {
+    public void triggerOrFallbackAxeMace(MinecraftClient client, MaceManager maceManager) {
         AxeConfig cfg = ConfigManager.getConfig().axe;
         if (!cfg.instantSlamEnabled || client.player == null || client.world == null) {
+            maceManager.triggerAxeToMace(client);
             return;
         }
 
         if (state != InstantSlamState.IDLE) {
-            cancel(client);
             return;
         }
 
-        state = InstantSlamState.VALIDATING_TARGET;
         double range = ConfigManager.getConfig().mace.maxTargetRange;
         LivingEntity target = targetManager.acquireTarget(client, range);
-
-        if (cfg.targetValidation && target == null) {
-            fail(client, "No valid target in range");
-            return;
-        }
 
         int axeSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isAxe);
         this.cachedMaceSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isMace);
 
         if (cachedMaceSlot == -1) {
-            fail(client, "No Mace in hotbar");
             return;
         }
-
-        slotManager.captureOriginalSlot(client);
 
         boolean blocking = target != null && ShieldDetector.isActivelyBlockingWithShield(target);
-        if (cfg.shieldDetection && !blocking) {
-            if (cfg.fallbackAttackIfNoShield) {
-                executeMaceHitAndRestore(client, cfg, target);
-            } else {
-                fail(client, "Target is not blocking with a shield");
-            }
+
+        if (!blocking || axeSlot == -1) {
+            maceManager.triggerAxeToMace(client);
             return;
         }
 
-        if (axeSlot == -1) {
-            fail(client, "No Axe in hotbar to break shield");
-            return;
-        }
+        int currentSlot = HotbarUtils.getSelectedSlot(client);
+        int returnSlot = (axeSlot != -1) ? axeSlot : currentSlot;
+        slotManager.captureSpecificSlot(returnSlot);
 
-        state = InstantSlamState.SWITCHING_TO_AXE;
         state = InstantSlamState.BREAKING_SHIELD;
-        if (!breakHandler.performAxeShieldStrike(client, slotManager, axeSlot, target)) {
-            fail(client, "Could not switch to Axe");
-            return;
-        }
-
-        this.waitTicks = 0;
-        if (ShieldDetector.hasShieldBrokenOrDropped(target)) {
-            executeMaceHitAndRestore(client, cfg, target);
-        } else {
-            state = InstantSlamState.WAITING_SHIELD_BREAK;
-        }
+        breakHandler.performAxeShieldStrike(client, slotManager, axeSlot, target);
+        this.stageTicks = 0;
+        state = InstantSlamState.WAITING_SHIELD_BREAK;
     }
 
     public void tick(MinecraftClient client) {
@@ -91,37 +69,29 @@ public class InstantSlamManager {
 
         AxeConfig cfg = ConfigManager.getConfig().axe;
         double range = ConfigManager.getConfig().mace.maxTargetRange;
-
-        if (!targetManager.validateLockedTarget(client, range)) {
-            fail(client, "Locked target became invalid");
-            return;
-        }
-
-        LivingEntity target = targetManager.getLockedTarget();
+        stageTicks++;
 
         if (state == InstantSlamState.WAITING_SHIELD_BREAK) {
-            waitTicks++;
-            if (ShieldDetector.hasShieldBrokenOrDropped(target)) {
-                executeMaceHitAndRestore(client, cfg, target);
-            } else if (waitTicks > cfg.maxWaitShieldBreakTicks) {
-                fail(client, "Shield break state not confirmed within window");
+            if (!targetManager.validateLockedTarget(client, range)) {
+                cancel(client);
+                return;
+            }
+            LivingEntity target = targetManager.getLockedTarget();
+            if (stageTicks >= 1 && (ShieldDetector.hasShieldBrokenOrDropped(target) || stageTicks >= 2)) {
+                state = InstantSlamState.MACE_HIT;
+                breakHandler.performMaceFollowup(client, slotManager, cachedMaceSlot, target);
+                state = InstantSlamState.RESTORING;
+                stageTicks = 0;
+            }
+        } else if (state == InstantSlamState.RESTORING) {
+            if (stageTicks >= 2) {
+                slotManager.restoreOriginalSlot(client, cfg.restorePreviousSlot);
+                targetManager.clearTarget();
+                state = InstantSlamState.IDLE;
+                stageTicks = 0;
+                cachedMaceSlot = -1;
             }
         }
-    }
-
-    private void executeMaceHitAndRestore(MinecraftClient client, AxeConfig cfg, LivingEntity target) {
-        state = InstantSlamState.SWITCHING_TO_MACE;
-        state = InstantSlamState.MACE_HIT;
-        breakHandler.performMaceFollowup(client, slotManager, cachedMaceSlot, target);
-
-        state = InstantSlamState.RESTORING;
-        slotManager.restoreOriginalSlot(client, cfg.restorePreviousSlot);
-        targetManager.clearTarget();
-
-        state = InstantSlamState.COMPLETED;
-        state = InstantSlamState.IDLE;
-        waitTicks = 0;
-        cachedMaceSlot = -1;
     }
 
     public void cancel(MinecraftClient client) {
@@ -129,19 +99,9 @@ public class InstantSlamManager {
             slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().axe.restorePreviousSlot);
             targetManager.clearTarget();
             state = InstantSlamState.IDLE;
-            waitTicks = 0;
+            stageTicks = 0;
             cachedMaceSlot = -1;
         }
-    }
-
-    private void fail(MinecraftClient client, String reason) {
-        state = InstantSlamState.FAILED;
-        DebugLogger.notifyPlayer(client, "Instant Slam: " + reason);
-        slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().axe.restorePreviousSlot);
-        targetManager.clearTarget();
-        state = InstantSlamState.IDLE;
-        waitTicks = 0;
-        cachedMaceSlot = -1;
     }
 
     public InstantSlamState getState() {

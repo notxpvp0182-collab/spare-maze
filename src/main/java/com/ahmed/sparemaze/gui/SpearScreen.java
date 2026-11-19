@@ -15,9 +15,10 @@ public class SpearScreen extends BaseSettingsScreen {
         SpearConfig cfg = ConfigManager.getConfig().spear;
 
         addBooleanToggle("Spear Lunge", () -> cfg.spearLungeEnabled, val -> cfg.spearLungeEnabled = val);
-        addBooleanToggle("Automatic Spear Detection", () -> cfg.automaticSpearDetection, val -> cfg.automaticSpearDetection = val);
+        addIntSlider("Lunge With Slot (0=Current, 1-9=Slot)", 0, 9, () -> cfg.preferredBaseSlot, val -> cfg.preferredBaseSlot = val);
+        addIntSlider("Spear Hotbar Slot (0=Auto, 1-9=Slot)", 0, 9, () -> cfg.preferredSpearSlot, val -> cfg.preferredSpearSlot = val);
         addBooleanToggle("Require Lunge Enchantment", () -> cfg.requireLungeEnchantment, val -> cfg.requireLungeEnchantment = val);
-        addBooleanToggle("Restore Previous Slot", () -> cfg.restorePreviousSlot, val -> cfg.restorePreviousSlot = val);
+        addBooleanToggle("Restore Selected Slot", () -> cfg.restorePreviousSlot, val -> cfg.restorePreviousSlot = val);
         addFullWidthButton(Text.literal("Configure Keybinds..."), btn -> this.client.setScreen(new ControlsScreen(this)));
     }
 }

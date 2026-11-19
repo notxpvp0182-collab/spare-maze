@@ -5,7 +5,6 @@ import com.ahmed.sparemaze.config.MaceConfig;
 import com.ahmed.sparemaze.input.InputManager;
 import com.ahmed.sparemaze.input.SlotManager;
 import com.ahmed.sparemaze.targeting.TargetManager;
-import com.ahmed.sparemaze.util.DebugLogger;
 import com.ahmed.sparemaze.util.HotbarUtils;
 import com.ahmed.sparemaze.util.ItemUtils;
 import net.minecraft.client.MinecraftClient;
@@ -16,6 +15,7 @@ public class AxeMaceHandler {
     private final TargetManager targetManager;
 
     private MaceState state = MaceState.IDLE;
+    private int stageTicks = 0;
 
     public AxeMaceHandler(SlotManager slotManager, TargetManager targetManager) {
         this.slotManager = slotManager;
@@ -24,44 +24,40 @@ public class AxeMaceHandler {
 
     public void execute(MinecraftClient client) {
         MaceConfig cfg = ConfigManager.getConfig().mace;
-        if (!cfg.axeToMaceEnabled || client.player == null || client.world == null) {
+        if (!cfg.axeToMaceEnabled || client.player == null || client.world == null || state != MaceState.IDLE) {
             return;
         }
 
-        state = MaceState.SEARCHING_WEAPON;
         int currentSlot = HotbarUtils.getSelectedSlot(client);
         int axeSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isAxe);
         int maceSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isMace);
 
         if (maceSlot == -1) {
-            state = MaceState.FAILED;
-            DebugLogger.notifyPlayer(client, "Axe -> Mace cancelled: No Mace in hotbar.");
-            state = MaceState.IDLE;
             return;
         }
 
-        LivingEntity target = targetManager.acquireTarget(client, cfg.maxTargetRange);
-
-        int baseSlot = (axeSlot != -1) ? axeSlot : currentSlot;
-        slotManager.captureSpecificSlot(baseSlot);
-
-        state = MaceState.SWITCHING;
-        if (axeSlot != -1 && currentSlot != axeSlot) {
-            slotManager.switchToSlot(client, axeSlot);
-        }
+        targetManager.acquireTarget(client, cfg.maxTargetRange);
+        int returnSlot = (axeSlot != -1) ? axeSlot : currentSlot;
+        slotManager.captureSpecificSlot(returnSlot);
 
         slotManager.switchToSlot(client, maceSlot);
-        state = MaceState.READY;
-
-        state = MaceState.ATTACKING;
+        LivingEntity target = targetManager.getLockedTarget();
         InputManager.performLeftClickAttack(client, target);
 
-        state = MaceState.RESTORING;
-        slotManager.restoreOriginalSlot(client, cfg.restorePreviousSlot);
-        targetManager.clearTarget();
+        this.state = MaceState.RESTORING;
+        this.stageTicks = 0;
+    }
 
-        state = MaceState.COMPLETED;
-        state = MaceState.IDLE;
+    public void tick(MinecraftClient client) {
+        if (state == MaceState.RESTORING) {
+            stageTicks++;
+            if (stageTicks >= 2) {
+                slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().mace.restorePreviousSlot);
+                targetManager.clearTarget();
+                state = MaceState.IDLE;
+                stageTicks = 0;
+            }
+        }
     }
 
     public void cancel(MinecraftClient client) {
@@ -69,6 +65,7 @@ public class AxeMaceHandler {
             slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().mace.restorePreviousSlot);
             targetManager.clearTarget();
             state = MaceState.IDLE;
+            stageTicks = 0;
         }
     }
 

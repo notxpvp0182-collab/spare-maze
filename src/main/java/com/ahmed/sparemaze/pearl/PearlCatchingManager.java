@@ -20,7 +20,7 @@ public class PearlCatchingManager {
 
     private PearlCatchState state = PearlCatchState.IDLE;
     private int sequenceTicks = 0;
-    private int verificationTicks = 0;
+    private int stageTicks = 0;
     private Vec3d latestPredictedPos = Vec3d.ZERO;
 
     public PearlCatchingManager(SlotManager slotManager, RotationController rotationController) {
@@ -35,12 +35,17 @@ public class PearlCatchingManager {
         }
 
         if (state != PearlCatchState.IDLE) {
-            cancel(client, "Manual toggle off");
+            cancel(client, "Cancelled");
+            return;
+        }
+
+        if (!windChargeController.findAndPrepareWindCharge(client)) {
+            sendPearlStatus(client, "No Wind Charge in hotbar");
             return;
         }
 
         this.sequenceTicks = 0;
-        this.verificationTicks = 0;
+        this.stageTicks = 0;
         slotManager.captureOriginalSlot(client);
         tracker.snapshotExistingPearls(client, cfg.maxTrackingRange);
 
@@ -49,20 +54,22 @@ public class PearlCatchingManager {
             return;
         }
 
-        transitionTo(PearlCatchState.SEARCHING_PEARL);
         int pearlSlot = HotbarUtils.findItemInHotbar(client, stack -> stack.isOf(Items.ENDER_PEARL));
         if (pearlSlot == -1) {
-            fail(client, "No Ender Pearl in hotbar");
+            slotManager.restoreOriginalSlot(client, false);
+            sendPearlStatus(client, "No Ender Pearl in hotbar");
             return;
         }
 
         if (client.player.getItemCooldownManager().isCoolingDown(Items.ENDER_PEARL.getDefaultStack())) {
-            fail(client, "Ender Pearl is on cooldown");
+            slotManager.restoreOriginalSlot(client, false);
             return;
         }
 
+        this.latestPredictedPos = predictor.preCalculateThrowIntercept(client);
         slotManager.switchToSlot(client, pearlSlot);
         InputManager.performUseItem(client);
+        transitionTo(PearlCatchState.SEARCHING_PEARL);
     }
 
     public void tick(MinecraftClient client) {
@@ -72,87 +79,77 @@ public class PearlCatchingManager {
 
         PearlConfig cfg = ConfigManager.getConfig().pearl;
         if (!cfg.enabled || client.player == null || client.world == null || !client.player.isAlive()) {
-            cancel(client, "Invalid player or world state");
+            cancel(client, "Invalid state");
             return;
         }
 
         sequenceTicks++;
+        stageTicks++;
+
         if (sequenceTicks > cfg.timeoutTicks) {
-            fail(client, "Pearl Catch sequence timed out");
+            fail(client, "Timed out");
             return;
         }
 
         switch (state) {
-            case SEARCHING_PEARL -> handleSearchingPearl(client, cfg);
-            case PEARL_FOUND -> handlePearlFound(client, cfg);
-            case TRACKING_PEARL, SEARCHING_WIND_CHARGE -> handleSearchingWindCharge(client, cfg);
-            case PREDICTING, AIMING, READY_TO_FIRE -> handlePredictionAndAim(client, cfg);
-            case FIRING -> handleFiring(client, cfg);
-            case VERIFYING -> handleVerifying(client, cfg);
-            case COMPLETED, CANCELLED, FAILED -> resetToIdle(client, cfg.restorePreviousSlot);
+            case SEARCHING_PEARL -> {
+                windChargeController.selectWindChargeSlot(client, slotManager);
+                if (cfg.aimAssistance && latestPredictedPos != Vec3d.ZERO) {
+                    if (!rotationController.isLocked()) {
+                        rotationController.lockToTarget(client, latestPredictedPos, cfg.timeoutTicks);
+                    } else {
+                        rotationController.updateTargetRotation(client, latestPredictedPos);
+                    }
+                }
+                if (tracker.locateOwnActivePearl(client, cfg.maxTrackingRange)) {
+                    transitionTo(PearlCatchState.PREDICTING);
+                    handlePredictionAndFire(client, cfg);
+                } else if (stageTicks > 10) {
+                    fail(client, "Pearl did not spawn");
+                }
+            }
+            case PEARL_FOUND, TRACKING_PEARL, SEARCHING_WIND_CHARGE, PREDICTING, AIMING, READY_TO_FIRE -> {
+                handlePredictionAndFire(client, cfg);
+            }
+            case FIRING -> {
+                windChargeController.fireWindCharge(client);
+                transitionTo(PearlCatchState.VERIFYING);
+            }
+            case VERIFYING -> {
+                rotationController.releaseLock();
+                if (stageTicks >= 2) {
+                    transitionTo(PearlCatchState.COMPLETED);
+                    sendPearlStatus(client, "Pearl Caught!");
+                    resetToIdle(client, cfg.restorePreviousSlot);
+                }
+            }
             default -> resetToIdle(client, cfg.restorePreviousSlot);
         }
     }
 
-    private void handleSearchingPearl(MinecraftClient client, PearlConfig cfg) {
-        if (tracker.locateOwnActivePearl(client, cfg.maxTrackingRange)) {
-            transitionTo(PearlCatchState.PEARL_FOUND);
-        } else if (sequenceTicks > 12) {
-            fail(client, "Own thrown Ender Pearl did not spawn");
-        }
-    }
-
-    private void handlePearlFound(MinecraftClient client, PearlConfig cfg) {
+    private void handlePredictionAndFire(MinecraftClient client, PearlConfig cfg) {
         if (!tracker.updateTelemetry(client)) {
-            fail(client, "Tracked pearl lost immediately");
-            return;
-        }
-        transitionTo(PearlCatchState.SEARCHING_WIND_CHARGE);
-        handleSearchingWindCharge(client, cfg);
-    }
-
-    private void handleSearchingWindCharge(MinecraftClient client, PearlConfig cfg) {
-        if (!tracker.updateTelemetry(client)) {
-            fail(client, "Tracked pearl disappeared");
-            return;
-        }
-        if (!cfg.windChargeDetection || !windChargeController.findAndPrepareWindCharge(client)) {
-            fail(client, "No Wind Charge available in hotbar");
-            return;
-        }
-        if (!windChargeController.selectWindChargeSlot(client, slotManager)) {
-            return;
-        }
-        transitionTo(PearlCatchState.PREDICTING);
-        handlePredictionAndAim(client, cfg);
-    }
-
-    private void handlePredictionAndAim(MinecraftClient client, PearlConfig cfg) {
-        if (!tracker.updateTelemetry(client)) {
-            fail(client, "Tracked pearl became invalid");
-            return;
-        }
-        if (tracker.getDistanceFromPlayer() > cfg.maxTrackingRange) {
-            fail(client, "Tracked pearl exceeded max tracking range");
+            fail(client, "Pearl lost");
             return;
         }
 
-        PearlTrajectoryPredictor.InterceptSolution solution = predictor.computeIntercept(
+        windChargeController.selectWindChargeSlot(client, slotManager);
+
+        PearlTrajectoryPredictor.InterceptSolution sol = predictor.computeIntercept(
             client,
             tracker,
             cfg.predictionQuality,
             cfg.catchTimingSensitivity
         );
 
-        if (!solution.valid()) {
-            fail(client, "Unable to compute intercept trajectory");
+        if (!sol.valid()) {
+            fail(client, "No trajectory");
             return;
         }
 
-        this.latestPredictedPos = solution.interceptPoint();
+        this.latestPredictedPos = sol.interceptPoint();
 
         if (cfg.aimAssistance) {
-            transitionTo(PearlCatchState.AIMING);
             if (!rotationController.isLocked()) {
                 rotationController.lockToTarget(client, latestPredictedPos, cfg.timeoutTicks);
             } else {
@@ -160,49 +157,29 @@ public class PearlCatchingManager {
             }
         }
 
-        if (solution.fireNow()) {
-            transitionTo(PearlCatchState.READY_TO_FIRE);
-            handleFiring(client, cfg);
+        if (sol.fireNow()) {
+            if (cfg.aimAssistance) {
+                rotationController.updateTargetRotation(client, latestPredictedPos);
+            }
+            windChargeController.fireWindCharge(client);
+            transitionTo(PearlCatchState.VERIFYING);
         }
     }
 
-    private void handleFiring(MinecraftClient client, PearlConfig cfg) {
-        transitionTo(PearlCatchState.FIRING);
-        if (!windChargeController.selectWindChargeSlot(client, slotManager)) {
-            fail(client, "Wind Charge unavailable on firing tick");
-            return;
-        }
-        if (cfg.aimAssistance) {
-            rotationController.updateTargetRotation(client, latestPredictedPos);
-        }
-        windChargeController.fireWindCharge(client);
-        this.verificationTicks = 0;
-        transitionTo(PearlCatchState.VERIFYING);
-    }
-
-    private void handleVerifying(MinecraftClient client, PearlConfig cfg) {
-        verificationTicks++;
-        rotationController.releaseLock();
-
-        boolean alive = tracker.updateTelemetry(client);
-        if (!alive || tracker.hasDetectedDeflectionOrCatch() || verificationTicks >= 3) {
-            transitionTo(PearlCatchState.COMPLETED);
-            DebugLogger.notifyPlayer(client, "Pearl Catch completed.");
-            resetToIdle(client, cfg.restorePreviousSlot);
+    private void sendPearlStatus(MinecraftClient client, String msg) {
+        if (ConfigManager.getConfig().pearl.statusMessages && ConfigManager.getConfig().notifications) {
+            DebugLogger.notifyPlayer(client, msg);
         }
     }
 
     public void cancel(MinecraftClient client, String reason) {
         if (state != PearlCatchState.IDLE) {
-            transitionTo(PearlCatchState.CANCELLED);
-            DebugLogger.log("Pearl Catch cancelled: " + reason);
             resetToIdle(client, ConfigManager.getConfig().pearl.restorePreviousSlot);
         }
     }
 
     private void fail(MinecraftClient client, String reason) {
-        transitionTo(PearlCatchState.FAILED);
-        DebugLogger.notifyPlayer(client, "Pearl Catch failed: " + reason);
+        sendPearlStatus(client, reason);
         resetToIdle(client, ConfigManager.getConfig().pearl.restorePreviousSlot);
     }
 
@@ -213,12 +190,13 @@ public class PearlCatchingManager {
         windChargeController.reset();
         latestPredictedPos = Vec3d.ZERO;
         sequenceTicks = 0;
-        verificationTicks = 0;
+        stageTicks = 0;
         state = PearlCatchState.IDLE;
     }
 
     private void transitionTo(PearlCatchState nextState) {
         this.state = nextState;
+        this.stageTicks = 0;
     }
 
     public PearlCatchState getState() {

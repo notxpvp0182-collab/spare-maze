@@ -4,7 +4,6 @@ import com.ahmed.sparemaze.config.ConfigManager;
 import com.ahmed.sparemaze.config.SpearConfig;
 import com.ahmed.sparemaze.input.InputManager;
 import com.ahmed.sparemaze.input.SlotManager;
-import com.ahmed.sparemaze.util.DebugLogger;
 import com.ahmed.sparemaze.util.HotbarUtils;
 import com.ahmed.sparemaze.util.ItemUtils;
 import net.minecraft.client.MinecraftClient;
@@ -14,6 +13,8 @@ import net.minecraft.item.ItemStack;
 public class SpearLungeManager {
     private final SlotManager slotManager;
     private LungeState state = LungeState.IDLE;
+    private int spearSlot = -1;
+    private int stageTicks = 0;
 
     public SpearLungeManager(SlotManager slotManager) {
         this.slotManager = slotManager;
@@ -21,58 +22,65 @@ public class SpearLungeManager {
 
     public void trigger(MinecraftClient client) {
         SpearConfig cfg = ConfigManager.getConfig().spear;
-        if (!cfg.spearLungeEnabled || client.player == null || client.world == null) {
+        if (!cfg.spearLungeEnabled || client.player == null || client.world == null || state != LungeState.IDLE) {
             return;
-        }
-
-        if (state != LungeState.IDLE) {
-            cancel(client);
         }
 
         if (!validateVanillaLungeConditions(client.player)) {
-            fail(client, "Player state ineligible for Spear Lunge (water/elytra/hunger)");
             return;
         }
 
-        state = LungeState.CAPTURE_SLOT;
-        slotManager.captureOriginalSlot(client);
+        int currentSlot = HotbarUtils.getSelectedSlot(client);
+        int baseSlot = (cfg.preferredBaseSlot >= 1 && cfg.preferredBaseSlot <= 9)
+            ? (cfg.preferredBaseSlot - 1)
+            : currentSlot;
 
-        state = LungeState.SEARCHING_SPEAR;
-        int spearSlot = findUsableSpearSlot(client, cfg.requireLungeEnchantment);
-        if (spearSlot == -1) {
-            fail(client, "No valid Lunge Spear found in hotbar");
+        this.spearSlot = resolveSpearSlot(client, cfg);
+        if (this.spearSlot == -1) {
             return;
         }
 
-        ItemStack spearStack = client.player.getInventory().getStack(spearSlot);
+        ItemStack spearStack = client.player.getInventory().getStack(this.spearSlot);
         if (client.player.getItemCooldownManager().isCoolingDown(spearStack)) {
-            fail(client, "Spear is currently on cooldown");
             return;
         }
 
-        state = LungeState.SWITCHING;
-        slotManager.switchToSlot(client, spearSlot);
+        slotManager.captureSpecificSlot(baseSlot);
 
-        state = LungeState.JAB_INPUT;
+        if (currentSlot != baseSlot) {
+            slotManager.switchToSlot(client, baseSlot);
+        }
+
+        InputManager.performJabInput(client);
+        slotManager.switchToSlot(client, this.spearSlot);
         InputManager.performJabInput(client);
 
-        state = LungeState.LUNGE_ACTIVE;
-        state = LungeState.RESTORING;
-        slotManager.restoreOriginalSlot(client, cfg.restorePreviousSlot);
-
-        state = LungeState.COMPLETED;
-        state = LungeState.IDLE;
+        this.state = LungeState.RESTORING;
+        this.stageTicks = 0;
     }
 
     public void tick(MinecraftClient client) {
-        if (state != LungeState.IDLE && state != LungeState.COMPLETED) {
-            slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().spear.restorePreviousSlot);
-            state = LungeState.IDLE;
+        if (state == LungeState.RESTORING) {
+            stageTicks++;
+            if (stageTicks >= 2) {
+                slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().spear.restorePreviousSlot);
+                state = LungeState.IDLE;
+                stageTicks = 0;
+            }
         }
     }
 
-    private int findUsableSpearSlot(MinecraftClient client, boolean requireLunge) {
-        if (requireLunge) {
+    private int resolveSpearSlot(MinecraftClient client, SpearConfig cfg) {
+        if (cfg.preferredSpearSlot >= 1 && cfg.preferredSpearSlot <= 9) {
+            int configuredIndex = cfg.preferredSpearSlot - 1;
+            if (client.player != null) {
+                ItemStack stack = client.player.getInventory().getStack(configuredIndex);
+                if (!stack.isEmpty() && ItemUtils.isSpear(stack)) {
+                    return configuredIndex;
+                }
+            }
+        }
+        if (cfg.requireLungeEnchantment) {
             int enchantedSlot = HotbarUtils.findItemInHotbar(
                 client,
                 stack -> ItemUtils.isSpear(stack) && ItemUtils.hasLungeEnchantment(stack)
@@ -104,14 +112,8 @@ public class SpearLungeManager {
         if (state != LungeState.IDLE) {
             slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().spear.restorePreviousSlot);
             state = LungeState.IDLE;
+            stageTicks = 0;
         }
-    }
-
-    private void fail(MinecraftClient client, String reason) {
-        state = LungeState.FAILED;
-        DebugLogger.notifyPlayer(client, "Spear Lunge: " + reason);
-        slotManager.restoreOriginalSlot(client, ConfigManager.getConfig().spear.restorePreviousSlot);
-        state = LungeState.IDLE;
     }
 
     public LungeState getState() {

@@ -1,6 +1,7 @@
 package com.ahmed.sparemaze.controls;
 
 import com.ahmed.sparemaze.axe.AxeManager;
+import com.ahmed.sparemaze.config.ConfigManager;
 import com.ahmed.sparemaze.mace.MaceManager;
 import com.ahmed.sparemaze.pearl.PearlCatchingManager;
 import com.ahmed.sparemaze.spear.SpearManager;
@@ -15,7 +16,6 @@ public final class KeybindManager {
     public static KeyBinding swordToMaceKey;
     public static KeyBinding axeToMaceKey;
     public static KeyBinding spearToMaceKey;
-    public static KeyBinding instantSlamKey;
     public static KeyBinding spearLungeKey;
 
     private KeybindManager() {}
@@ -49,13 +49,6 @@ public final class KeybindManager {
             KeybindCategory.MAIN_CATEGORY
         ));
 
-        instantSlamKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-            "key.sparemaze.instant_slam",
-            InputUtil.Type.KEYSYM,
-            GLFW.GLFW_KEY_UNKNOWN,
-            KeybindCategory.MAIN_CATEGORY
-        ));
-
         spearLungeKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
             "key.sparemaze.spear_lunge",
             InputUtil.Type.KEYSYM,
@@ -84,19 +77,26 @@ public final class KeybindManager {
         }
 
         while (axeToMaceKey.wasPressed()) {
-            maceManager.triggerAxeToMace(client);
+            triggerAxeOrInstantSlam(client, maceManager, axeManager);
+        }
+        if (axeToMaceKey.isPressed() && ConfigManager.getConfig().axe.instantSlamEnabled) {
+            axeManager.onHoldKey(client, maceManager);
         }
 
         while (spearToMaceKey.wasPressed()) {
             maceManager.triggerSpearToMace(client);
         }
 
-        while (instantSlamKey.wasPressed()) {
-            axeManager.triggerInstantSlam(client);
-        }
-
         while (spearLungeKey.wasPressed()) {
             spearManager.triggerLunge(client);
+        }
+    }
+
+    private static void triggerAxeOrInstantSlam(MinecraftClient client, MaceManager maceManager, AxeManager axeManager) {
+        if (ConfigManager.getConfig().axe.instantSlamEnabled) {
+            axeManager.triggerInstantSlamOrAxeMace(client, maceManager);
+        } else {
+            maceManager.triggerAxeToMace(client);
         }
     }
 }

@@ -2,7 +2,7 @@ package com.ahmed.sparemaze.config;
 
 public class SpareMazeConfig {
     public boolean masterEnable = true;
-    public boolean notifications = true;
+    public boolean notifications = false;
     public boolean debugMode = false;
     public boolean predictionDiagnostics = false;
     public boolean stateInformation = false;

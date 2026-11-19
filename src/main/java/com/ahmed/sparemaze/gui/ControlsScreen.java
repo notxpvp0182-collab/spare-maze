@@ -26,15 +26,11 @@ public class ControlsScreen extends BaseSettingsScreen {
             btn -> this.client.setScreen(new KeybindsScreen(this, this.client.options))
         );
         addFullWidthButton(
-            Text.literal("Axe -> Mace: " + KeybindManager.axeToMaceKey.getBoundKeyLocalizedText().getString()),
+            Text.literal("Axe -> Mace (Instant Slam): " + KeybindManager.axeToMaceKey.getBoundKeyLocalizedText().getString()),
             btn -> this.client.setScreen(new KeybindsScreen(this, this.client.options))
         );
         addFullWidthButton(
             Text.literal("Spear -> Mace: " + KeybindManager.spearToMaceKey.getBoundKeyLocalizedText().getString()),
-            btn -> this.client.setScreen(new KeybindsScreen(this, this.client.options))
-        );
-        addFullWidthButton(
-            Text.literal("Axe Instant Slam: " + KeybindManager.instantSlamKey.getBoundKeyLocalizedText().getString()),
             btn -> this.client.setScreen(new KeybindsScreen(this, this.client.options))
         );
         addFullWidthButton(
