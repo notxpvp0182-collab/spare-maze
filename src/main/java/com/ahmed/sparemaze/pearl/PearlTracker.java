@@ -5,31 +5,28 @@ import net.minecraft.entity.projectile.thrown.EnderPearlEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public class PearlTracker {
-    private final Set<Integer> preExistingPearlIds = new HashSet<>();
+    private int ignoredPearlId = -1;
     private EnderPearlEntity trackedPearl = null;
     private Vec3d currentPosition = Vec3d.ZERO;
     private Vec3d currentVelocity = Vec3d.ZERO;
-    private Vec3d previousVelocity = Vec3d.ZERO;
     private double distanceFromPlayer = 0.0;
 
     public void snapshotExistingPearls(MinecraftClient client, double range) {
-        preExistingPearlIds.clear();
+        this.ignoredPearlId = -1;
         if (client.player == null || client.world == null) {
             return;
         }
-        Box searchBox = client.player.getBoundingBox().expand(range);
+        Box smallBox = client.player.getBoundingBox().expand(6.0);
         List<EnderPearlEntity> existing = client.world.getEntitiesByClass(
             EnderPearlEntity.class,
-            searchBox,
-            pearl -> true
+            smallBox,
+            pearl -> PearlTargetValidator.isLocalPlayerPearl(client, pearl)
         );
-        for (EnderPearlEntity pearl : existing) {
-            preExistingPearlIds.add(pearl.getId());
+        if (!existing.isEmpty()) {
+            this.ignoredPearlId = existing.get(0).getId();
         }
     }
 
@@ -37,29 +34,21 @@ public class PearlTracker {
         if (client.player == null || client.world == null) {
             return false;
         }
-        Box searchBox = client.player.getBoundingBox().expand(maxRange);
+        Box fastSearchBox = client.player.getBoundingBox().expand(10.0);
         List<EnderPearlEntity> candidates = client.world.getEntitiesByClass(
             EnderPearlEntity.class,
-            searchBox,
+            fastSearchBox,
             pearl -> PearlTargetValidator.isLocalPlayerPearl(client, pearl)
         );
 
         EnderPearlEntity bestCandidate = null;
         int youngestAge = Integer.MAX_VALUE;
 
-        for (EnderPearlEntity pearl : candidates) {
-            if (!preExistingPearlIds.contains(pearl.getId()) && pearl.age < youngestAge) {
+        for (int i = 0, size = candidates.size(); i < size; i++) {
+            EnderPearlEntity pearl = candidates.get(i);
+            if (pearl.getId() != ignoredPearlId && pearl.age < youngestAge) {
                 bestCandidate = pearl;
                 youngestAge = pearl.age;
-            }
-        }
-
-        if (bestCandidate == null) {
-            for (EnderPearlEntity pearl : candidates) {
-                if (pearl.age < youngestAge) {
-                    bestCandidate = pearl;
-                    youngestAge = pearl.age;
-                }
             }
         }
 
@@ -75,30 +64,24 @@ public class PearlTracker {
         if (client.player == null || trackedPearl == null || trackedPearl.isRemoved() || !trackedPearl.isAlive()) {
             return false;
         }
-        if (!PearlTargetValidator.isLocalPlayerPearl(client, trackedPearl)) {
-            return false;
-        }
-        this.previousVelocity = this.currentVelocity;
-        this.currentPosition = new Vec3d(trackedPearl.getX(), trackedPearl.getY(), trackedPearl.getZ());
+        double px = trackedPearl.getX();
+        double py = trackedPearl.getY();
+        double pz = trackedPearl.getZ();
+        this.currentPosition = new Vec3d(px, py, pz);
         this.currentVelocity = trackedPearl.getVelocity();
-        this.distanceFromPlayer = client.player.getEyePos().distanceTo(currentPosition);
+
+        double dx = client.player.getX() - px;
+        double dy = client.player.getEyeY() - py;
+        double dz = client.player.getZ() - pz;
+        this.distanceFromPlayer = Math.sqrt(dx * dx + dy * dy + dz * dz);
         return true;
     }
 
-    public boolean hasDetectedDeflectionOrCatch() {
-        if (trackedPearl == null || trackedPearl.isRemoved()) {
-            return true;
-        }
-        double deltaVel = currentVelocity.subtract(previousVelocity).length();
-        return deltaVel > 0.32;
-    }
-
     public void clear() {
-        preExistingPearlIds.clear();
+        ignoredPearlId = -1;
         trackedPearl = null;
         currentPosition = Vec3d.ZERO;
         currentVelocity = Vec3d.ZERO;
-        previousVelocity = Vec3d.ZERO;
         distanceFromPlayer = 0.0;
     }
 
@@ -112,14 +95,6 @@ public class PearlTracker {
 
     public Vec3d getCurrentVelocity() {
         return currentVelocity;
-    }
-
-    public double getVerticalMovement() {
-        return currentVelocity.y;
-    }
-
-    public double getHorizontalMovement() {
-        return Math.hypot(currentVelocity.x, currentVelocity.z);
     }
 
     public double getDistanceFromPlayer() {

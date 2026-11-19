@@ -1,12 +1,17 @@
 package com.ahmed.sparemaze;
 
 import com.ahmed.sparemaze.axe.AxeManager;
+import com.ahmed.sparemaze.axe.InstantSlamState;
 import com.ahmed.sparemaze.config.ConfigManager;
+import com.ahmed.sparemaze.config.SpareMazeConfig;
 import com.ahmed.sparemaze.controls.KeybindManager;
 import com.ahmed.sparemaze.input.RotationController;
 import com.ahmed.sparemaze.input.SlotManager;
 import com.ahmed.sparemaze.mace.MaceManager;
+import com.ahmed.sparemaze.mace.MaceState;
+import com.ahmed.sparemaze.pearl.PearlCatchState;
 import com.ahmed.sparemaze.pearl.PearlCatchingManager;
+import com.ahmed.sparemaze.spear.LungeState;
 import com.ahmed.sparemaze.spear.SpearManager;
 import com.ahmed.sparemaze.targeting.TargetManager;
 import com.ahmed.sparemaze.util.DebugLogger;
@@ -28,6 +33,8 @@ public class SpareMazeClient implements ClientModInitializer {
     private final AxeManager axeManager = new AxeManager(slotManager, targetManager);
     private final SpearManager spearManager = new SpearManager(slotManager);
 
+    private boolean wasActiveLastTick = false;
+
     @Override
     public void onInitializeClient() {
         instance = this;
@@ -42,32 +49,46 @@ public class SpareMazeClient implements ClientModInitializer {
     }
 
     private void onClientTick(MinecraftClient client) {
-        TickUtils.onTick();
-
-        if (client.player == null || client.world == null) {
-            resetAllSystems(client);
+        if (client.player == null || client.world == null || !client.player.isAlive()) {
+            if (wasActiveLastTick) {
+                resetAllSystems(client);
+                wasActiveLastTick = false;
+            }
             return;
         }
 
-        if (!client.player.isAlive()) {
-            resetAllSystems(client);
-            return;
-        }
-
-        if (!ConfigManager.getConfig().masterEnable) {
-            resetAllSystems(client);
+        SpareMazeConfig cfg = ConfigManager.getConfig();
+        if (!cfg.masterEnable) {
+            if (wasActiveLastTick) {
+                resetAllSystems(client);
+                wasActiveLastTick = false;
+            }
             return;
         }
 
         KeybindManager.handleInput(client, pearlCatchingManager, maceManager, axeManager, spearManager);
 
-        rotationController.tick(client);
-        pearlCatchingManager.tick(client);
-        maceManager.tick(client);
-        axeManager.tick(client);
-        spearManager.tick(client);
+        boolean rotActive = RotationController.isCameraLocked;
+        boolean pearlActive = pearlCatchingManager.getState() != PearlCatchState.IDLE;
+        boolean maceActive = maceManager.getActiveState() != MaceState.IDLE;
+        boolean axeActive = axeManager.getInstantSlamManager().getState() != InstantSlamState.IDLE;
+        boolean spearActive = spearManager.getSpearLungeManager().getState() != LungeState.IDLE;
 
-        if (ConfigManager.getConfig().debugMode) {
+        if (!rotActive && !pearlActive && !maceActive && !axeActive && !spearActive) {
+            wasActiveLastTick = false;
+            return;
+        }
+
+        wasActiveLastTick = true;
+        TickUtils.onTick();
+
+        if (rotActive) rotationController.tick(client);
+        if (pearlActive) pearlCatchingManager.tick(client);
+        if (maceActive) maceManager.tick(client);
+        if (axeActive) axeManager.tick(client);
+        if (spearActive) spearManager.tick(client);
+
+        if (cfg.debugMode) {
             DebugLogger.tickDiagnostics(
                 client,
                 pearlCatchingManager,
@@ -81,7 +102,7 @@ public class SpareMazeClient implements ClientModInitializer {
     }
 
     public void resetAllSystems(MinecraftClient client) {
-        pearlCatchingManager.cancel(client, "System Reset");
+        pearlCatchingManager.cancel(client, "Reset");
         maceManager.cancelAll(client);
         axeManager.cancel(client);
         spearManager.cancel(client);

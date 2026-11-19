@@ -6,7 +6,8 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 public class RotationController {
-    private boolean locked = false;
+    public static boolean isCameraLocked = false;
+
     private float targetYaw = 0.0f;
     private float targetPitch = 0.0f;
     private int lockTicksRemaining = 0;
@@ -18,13 +19,13 @@ public class RotationController {
         float[] rotations = RotationUtils.calculateRotations(client.player.getEyePos(), targetPos);
         this.targetYaw = rotations[0];
         this.targetPitch = MathHelper.clamp(rotations[1], -90.0f, 90.0f);
-        this.locked = true;
+        isCameraLocked = true;
         this.lockTicksRemaining = maxDurationTicks;
         applyRotation(client);
     }
 
     public void updateTargetRotation(MinecraftClient client, Vec3d targetPos) {
-        if (!locked || client.player == null) {
+        if (!isCameraLocked || client.player == null) {
             return;
         }
         float[] rotations = RotationUtils.calculateRotations(client.player.getEyePos(), targetPos);
@@ -34,15 +35,14 @@ public class RotationController {
     }
 
     public void tick(MinecraftClient client) {
-        if (!locked) {
+        if (!isCameraLocked) {
             return;
         }
-        if (client.player == null || !client.player.isAlive() || lockTicksRemaining <= 0) {
+        if (client.player == null || !client.player.isAlive() || --lockTicksRemaining <= 0) {
             releaseLock();
             return;
         }
         applyRotation(client);
-        lockTicksRemaining--;
     }
 
     private void applyRotation(MinecraftClient client) {
@@ -54,11 +54,11 @@ public class RotationController {
     }
 
     public void releaseLock() {
-        this.locked = false;
+        isCameraLocked = false;
         this.lockTicksRemaining = 0;
     }
 
     public boolean isLocked() {
-        return locked;
+        return isCameraLocked;
     }
 }
