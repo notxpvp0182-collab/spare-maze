@@ -1,4 +1,4 @@
-name: Build Spare Maze
+name: Build SpearMace
 
 on:
   push:
@@ -34,17 +34,17 @@ jobs:
       - name: Upload Built Mod JAR to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SpareMace-1.21.11
-          path: build/libs/SpareMace-1.21.11.jar
+          name: SpearMace-1.21.11
+          path: build/libs/SpearMace-1.21.11.jar
 
       - name: Automatically Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         with:
           tag_name: v1.21.11
-          name: "Spare Maze v1.21.11"
-          body: "Automated build of SpareMace-1.21.11.jar for Minecraft 1.21.11 (Fabric)."
-          files: build/libs/SpareMace-1.21.11.jar
+          name: "SpearMace v1.21.11"
+          body: "Automated build of SpearMace-1.21.11.jar for Minecraft 1.21.11 (Fabric)."
+          files: build/libs/SpearMace-1.21.11.jar
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

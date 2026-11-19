@@ -7,7 +7,7 @@ version = "1.21.11"
 group = project.maven_group
 
 base {
-    archivesName = "SpareMace"
+    archivesName = "SpearMace"
 }
 
 repositories {
