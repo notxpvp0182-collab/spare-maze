@@ -79,7 +79,7 @@ public class PearlTracker {
             return false;
         }
         this.previousVelocity = this.currentVelocity;
-        this.currentPosition = trackedPearl.getPos();
+        this.currentPosition = new Vec3d(trackedPearl.getX(), trackedPearl.getY(), trackedPearl.getZ());
         this.currentVelocity = trackedPearl.getVelocity();
         this.distanceFromPlayer = client.player.getEyePos().distanceTo(currentPosition);
         return true;

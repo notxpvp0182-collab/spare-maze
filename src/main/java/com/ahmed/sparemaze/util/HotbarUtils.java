@@ -1,5 +1,6 @@
 package com.ahmed.sparemaze.util;
 
+import com.ahmed.sparemaze.mixin.PlayerInventoryAccessor;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
@@ -14,6 +15,13 @@ public final class HotbarUtils {
 
     public static boolean isValidHotbarSlot(int slot) {
         return slot >= 0 && slot < HOTBAR_SIZE;
+    }
+
+    public static int getSelectedSlot(MinecraftClient client) {
+        if (client.player == null) {
+            return 0;
+        }
+        return ((PlayerInventoryAccessor) client.player.getInventory()).getSelectedSlot();
     }
 
     public static int findItemInHotbar(MinecraftClient client, Predicate<ItemStack> predicate) {
@@ -34,9 +42,9 @@ public final class HotbarUtils {
         if (client.player == null || !isValidHotbarSlot(slot)) {
             return;
         }
-        PlayerInventory inventory = client.player.getInventory();
-        if (inventory.selectedSlot != slot) {
-            inventory.selectedSlot = slot;
+        PlayerInventoryAccessor accessor = (PlayerInventoryAccessor) client.player.getInventory();
+        if (accessor.getSelectedSlot() != slot) {
+            accessor.setSelectedSlot(slot);
             if (client.getNetworkHandler() != null) {
                 client.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(slot));
             }

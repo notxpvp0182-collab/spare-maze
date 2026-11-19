@@ -1,26 +1,29 @@
 package com.ahmed.sparemaze.gui;
 
 import com.ahmed.sparemaze.config.ConfigManager;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.Element;
-import net.minecraft.client.gui.Selectable;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.ClickableWidget;
-import net.minecraft.client.gui.widget.ElementListWidget;
 import net.minecraft.client.gui.widget.SliderWidget;
 import net.minecraft.screen.ScreenTexts;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public abstract class BaseSettingsScreen extends Screen {
     protected final Screen parent;
-    protected SettingsListWidget listWidget;
+    private final List<RowData> rows = new ArrayList<>();
+    private int scrollOffset = 0;
+    private int maxScroll = 0;
+
+    private static final int HEADER_HEIGHT = 34;
+    private static final int FOOTER_HEIGHT = 36;
+    private static final int ROW_HEIGHT = 24;
 
     protected BaseSettingsScreen(Text title, Screen parent) {
         super(title);
@@ -29,13 +32,22 @@ public abstract class BaseSettingsScreen extends Screen {
 
     @Override
     protected void init() {
-        int topHeaderHeight = 32;
-        int bottomFooterHeight = 36;
-        int listHeight = Math.max(40, this.height - topHeaderHeight - bottomFooterHeight);
-
-        this.listWidget = new SettingsListWidget(this.client, this.width, listHeight, topHeaderHeight, 24);
+        this.rows.clear();
         buildEntries();
-        this.addDrawableChild(this.listWidget);
+
+        for (RowData row : rows) {
+            this.addDrawableChild(row.left);
+            if (row.right != null) {
+                this.addDrawableChild(row.right);
+            }
+        }
+
+        int visibleHeight = Math.max(24, this.height - HEADER_HEIGHT - FOOTER_HEIGHT);
+        int totalContentHeight = rows.size() * ROW_HEIGHT;
+        this.maxScroll = Math.max(0, totalContentHeight - visibleHeight);
+        this.scrollOffset = MathHelper.clamp(this.scrollOffset, 0, this.maxScroll);
+
+        updateRowPositions();
 
         this.addDrawableChild(ButtonWidget.builder(ScreenTexts.DONE, button -> this.close())
             .dimensions(this.width / 2 - 100, this.height - 27, 200, 20)
@@ -44,11 +56,50 @@ public abstract class BaseSettingsScreen extends Screen {
 
     protected abstract void buildEntries();
 
+    private void updateRowPositions() {
+        int centerX = this.width / 2;
+        int minVisibleY = HEADER_HEIGHT;
+        int maxVisibleY = this.height - FOOTER_HEIGHT - 20;
+
+        for (int i = 0; i < rows.size(); i++) {
+            int y = HEADER_HEIGHT + (i * ROW_HEIGHT) - scrollOffset;
+            boolean visible = (y >= minVisibleY - 4) && (y <= maxVisibleY + 4);
+            RowData row = rows.get(i);
+
+            if (row.right == null) {
+                row.left.setX(centerX - 155);
+                row.left.setY(y);
+                row.left.setWidth(310);
+                row.left.visible = visible;
+            } else {
+                row.left.setX(centerX - 155);
+                row.left.setY(y);
+                row.left.setWidth(150);
+                row.left.visible = visible;
+
+                row.right.setX(centerX + 5);
+                row.right.setY(y);
+                row.right.setWidth(150);
+                row.right.visible = visible;
+            }
+        }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (this.maxScroll > 0) {
+            this.scrollOffset = MathHelper.clamp(this.scrollOffset - (int) (verticalAmount * 16), 0, this.maxScroll);
+            updateRowPositions();
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
     protected void addFullWidthButton(Text label, ButtonWidget.PressAction action) {
         ButtonWidget btn = ButtonWidget.builder(label, action)
             .dimensions(this.width / 2 - 155, 0, 310, 20)
             .build();
-        this.listWidget.addSingleEntry(btn);
+        this.rows.add(new RowData(btn, null));
     }
 
     protected void addPairButtons(Text leftLabel, ButtonWidget.PressAction leftAction, Text rightLabel, ButtonWidget.PressAction rightAction) {
@@ -58,7 +109,7 @@ public abstract class BaseSettingsScreen extends Screen {
         ButtonWidget right = ButtonWidget.builder(rightLabel, rightAction)
             .dimensions(this.width / 2 + 5, 0, 150, 20)
             .build();
-        this.listWidget.addDualEntry(left, right);
+        this.rows.add(new RowData(left, right));
     }
 
     protected void addBooleanToggle(String label, Supplier<Boolean> getter, Consumer<Boolean> setter) {
@@ -68,7 +119,7 @@ public abstract class BaseSettingsScreen extends Screen {
             ConfigManager.save();
             btn.setMessage(formatToggleText(label, next));
         }).dimensions(this.width / 2 - 155, 0, 310, 20).build();
-        this.listWidget.addSingleEntry(toggle);
+        this.rows.add(new RowData(toggle, null));
     }
 
     protected void addIntSlider(String label, int min, int max, Supplier<Integer> getter, Consumer<Integer> setter) {
@@ -87,7 +138,7 @@ public abstract class BaseSettingsScreen extends Screen {
                 ConfigManager.save();
             }
         };
-        this.listWidget.addSingleEntry(slider);
+        this.rows.add(new RowData(slider, null));
     }
 
     private Text formatToggleText(String label, boolean enabled) {
@@ -108,63 +159,5 @@ public abstract class BaseSettingsScreen extends Screen {
         }
     }
 
-    protected static class SettingsListWidget extends ElementListWidget<SettingsListWidget.RowEntry> {
-        public SettingsListWidget(MinecraftClient client, int width, int height, int y, int itemHeight) {
-            super(client, width, height, y, itemHeight);
-        }
-
-        public void addSingleEntry(ClickableWidget widget) {
-            this.addEntry(new RowEntry(List.of(widget)));
-        }
-
-        public void addDualEntry(ClickableWidget left, ClickableWidget right) {
-            this.addEntry(new RowEntry(List.of(left, right)));
-        }
-
-        @Override
-        public int getRowWidth() {
-            return 310;
-        }
-
-        protected static class RowEntry extends ElementListWidget.Entry<RowEntry> {
-            private final List<ClickableWidget> widgets;
-
-            public RowEntry(List<ClickableWidget> widgets) {
-                this.widgets = widgets;
-            }
-
-            @Override
-            public void render(DrawContext context, int index, int y, int x, int entryWidth, int entryHeight, int mouseX, int mouseY, boolean hovered, float tickDelta) {
-                if (widgets.size() == 1) {
-                    ClickableWidget w = widgets.get(0);
-                    w.setX(x);
-                    w.setY(y);
-                    w.setWidth(entryWidth);
-                    w.render(context, mouseX, mouseY, tickDelta);
-                } else if (widgets.size() == 2) {
-                    ClickableWidget left = widgets.get(0);
-                    ClickableWidget right = widgets.get(1);
-                    int half = (entryWidth - 10) / 2;
-                    left.setX(x);
-                    left.setY(y);
-                    left.setWidth(half);
-                    right.setX(x + half + 10);
-                    right.setY(y);
-                    right.setWidth(half);
-                    left.render(context, mouseX, mouseY, tickDelta);
-                    right.render(context, mouseX, mouseY, tickDelta);
-                }
-            }
-
-            @Override
-            public List<? extends Element> children() {
-                return widgets;
-            }
-
-            @Override
-            public List<? extends Selectable> selectableChildren() {
-                return widgets;
-            }
-        }
-    }
+    private record RowData(ClickableWidget left, ClickableWidget right) {}
 }

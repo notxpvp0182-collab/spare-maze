@@ -12,7 +12,7 @@ public class SlotManager {
             return;
         }
         if (!holdingOverride) {
-            this.originalSelectedSlot = client.player.getInventory().selectedSlot;
+            this.originalSelectedSlot = HotbarUtils.getSelectedSlot(client);
             this.holdingOverride = true;
         }
     }

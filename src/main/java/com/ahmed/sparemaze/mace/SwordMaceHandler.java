@@ -30,7 +30,7 @@ public class SwordMaceHandler {
         }
 
         state = MaceState.SEARCHING_WEAPON;
-        int currentSlot = client.player.getInventory().selectedSlot;
+        int currentSlot = HotbarUtils.getSelectedSlot(client);
         int swordSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isSword);
         int maceSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isMace);
 

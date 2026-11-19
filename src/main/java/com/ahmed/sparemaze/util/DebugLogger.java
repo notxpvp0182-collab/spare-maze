@@ -63,7 +63,7 @@ public final class DebugLogger {
         Vec3d vel = tracker.getCurrentVelocity();
         Vec3d pred = pearlManager.getLatestPredictedPos();
         int wcSlot = pearlManager.getWindChargeController().getWindChargeSlot();
-        int selSlot = client.player.getInventory().selectedSlot;
+        int selSlot = HotbarUtils.getSelectedSlot(client);
         int origSlot = slotManager.getOriginalSelectedSlot();
         LivingEntity target = targetManager.getLockedTarget();
         String targetName = (target != null) ? target.getName().getString() : "None";

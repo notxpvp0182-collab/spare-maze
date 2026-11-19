@@ -29,7 +29,7 @@ public class SpearMaceHandler {
         }
 
         state = MaceState.SEARCHING_WEAPON;
-        int currentSlot = client.player.getInventory().selectedSlot;
+        int currentSlot = HotbarUtils.getSelectedSlot(client);
         int spearSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isSpear);
         int maceSlot = HotbarUtils.findItemInHotbar(client, ItemUtils::isMace);
 
