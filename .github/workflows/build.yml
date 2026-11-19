@@ -7,6 +7,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,10 +31,20 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
 
-      - name: Upload Built Mod JAR
+      - name: Upload Built Mod JAR to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: spare-maze-1.21.11
-          path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
+          name: SpareMace-1.21.11
+          path: build/libs/SpareMace-1.21.11.jar
+
+      - name: Automatically Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: v1.21.11
+          name: "Spare Maze v1.21.11"
+          body: "Automated build of SpareMace-1.21.11.jar for Minecraft 1.21.11 (Fabric)."
+          files: build/libs/SpareMace-1.21.11.jar
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
